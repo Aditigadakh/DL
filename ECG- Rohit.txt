@@ -1,0 +1,171 @@
+# a. Import required libraries
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+import tensorflow as tf
+from tensorflow.keras.models import Model
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
+mpl.rcParams['figure.figsize'] = (10, 5) # Sets the default figure size for Matplotlib to (10, 5).
+mpl.rcParams['axes.grid'] = False # Disables grid lines in Matplotlib plots.
+     
+
+# b. Upload/access the dataset
+!cat "/content/ECG5000_TRAIN.txt" "/content/ECG5000_TEST.txt" > ecg_final.txt # This line concatenates two text files, "ECG5000_TRAIN.txt" and "ECG5000_TEST.txt," into a single file named "ecg_final.txt."
+df = pd.read_csv("/content/ecg_final.txt", sep='  ', header=None, engine='python') # Reads the concatenated data from "ecg_final.txt" into a Pandas DataFrame. It uses a space separator (' ') and specifies no header row. The 'engine' parameter is set to 'python' to avoid a warning about the parser engine.
+df.shape # Retrieves the shape of the DataFrame, indicating the number of rows and columns in the data.
+     
+df = df.add_prefix('c') # Prefixes all column names in the DataFrame with 'c' to ensure valid column names.
+df['c0'].value_counts() # Counts and displays the unique values in the 'c0' column. This likely provides insights in
+
+
+
+x_train, x_test, y_train, y_test = train_test_split(df.values, df.values[:,0:1], test_size=0.2, random_state=111)
+
+scaler = MinMaxScaler() # Initializes a Min-Max scaler.
+data_scaled = scaler.fit(x_train) # Fits the scaler to the training data.
+train_data_scaled = data_scaled.transform(x_train) # Transforms the training data using the fitted scaler.
+test_data_scaled = data_scaled.transform(x_test) # Transforms the test data using the same scaler. Min-Max scaling s
+
+normal_train_data = pd.DataFrame(train_data_scaled).add_prefix('c').query('c0 == 0').values[:,1:]
+anomaly_train_data = pd.DataFrame(train_data_scaled).add_prefix('c').query('c0 > 0').values[:, 1:]
+normal_test_data = pd.DataFrame(test_data_scaled).add_prefix('c').query('c0 == 0').values[:,1:]
+anomaly_test_data = pd.DataFrame(test_data_scaled).add_prefix('c').query('c0 > 0').values[:, 1:]
+
+# normal_train_data and anomaly_train_data are created by querying the DataFrame to separate normal and anomaly data from the training set.
+# normal_test_data and anomaly_test_data are created in a similar manner but for the testing set.
+
+plt.plot(normal_train_data[0])
+plt.plot(normal_train_data[1])
+plt.plot(normal_train_data[2])
+plt.title("Normal Data")
+plt.show()
+
+# This code plots the first three features of the normal training data. It shows a line plot for each feature with t
+
+
+plt.plot(anomaly_train_data[0])
+plt.plot(anomaly_train_data[1])
+plt.plot(anomaly_train_data[2])
+plt.title("Anomaly Data")
+plt.show()
+
+# Similar to the previous section, this code plots the first three features of the anomaly training data. It shows a
+
+# The other way that we will use is subclassing or Model subclassing. Why we use it is because it tells us to use encoder and decoder separately easily. suppose If we want this Model only for compressing the data, then I can only use encoder. Hence, it allows using a model in multiple different ways. Below is a code snippet and an explanation of it.
+class AutoEncoder(Model):
+  def __init__(self):
+    super(AutoEncoder, self).__init__()
+    self.encoder = tf.keras.Sequential([
+                  tf.keras.layers.Dense(64, activation="relu"),
+                  tf.keras.layers.Dense(32, activation="relu"),
+                  tf.keras.layers.Dense(16, activation="relu"),
+                  tf.keras.layers.Dense(8, activation="relu")
+              ])
+    self.decoder = tf.keras.Sequential([
+                  tf.keras.layers.Dense(16, activation="relu"),
+                  tf.keras.layers.Dense(32, activation="relu"),
+                  tf.keras.layers.Dense(64, activation="relu"),
+                  tf.keras.layers.Dense(140, activation="sigmoid")
+              ])
+  def call(self, x):
+    encoded = self.encoder(x)
+    decoded = self.decoder(encoded)
+    return decoded
+
+  #  Explanation ~ Above, we create a class and create a constructor, and then we create an encoder in the same way of decreasing layer order and 8 units are bottleneck layers. Then we have a decoder that does upsampling of the data that is downsampled by an encoder and finally, the output is 140 units. depending on the problem statement number of units changes. The final activation function is sigmoid. The call function calls the encoder and passes the input data and the encoded data is passed to the decoder. So this Autoencoder is a class and when I run this class it will return the final model object which contains an encoder, bottleneck layer, and a decoder.
+     
+
+
+
+# Compile and train the Model
+
+# We are adding the Early Stopping phenomenon which terminates the training if the validation loss is not decreasing after two epochs. Then we compile the Model using Adam optimizer. we use MAE(mean absolute error) as a loss function. Now we pass the train data to the Model (we pass it two times because it is a mandatory field so pass a dummy Y values). We add 50 epochs but due to early stopping, it will not run too many epochs. If you are using time-series data then the order is important so you have to set shuffle to False.
+model = AutoEncoder()
+early_stopping = tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=2, mode="min")
+model.compile(optimizer='adam', loss="mae")
+history = model.fit(normal_train_data, normal_train_data, epochs=50, batch_size=120,
+                    validation_data=(train_data_scaled[:,1:], train_data_scaled[:, 1:]),
+                    shuffle=True,
+                    callbacks=[early_stopping]
+                    )
+
+
+# Model Evaluation
+# In Autoencoders difference between training loss and validation loss is high. It does not mean that Model is underfitting. The reason is in the validation function I am giving both the normal data and abnormal data against training data as normal data so you will see this kind of behaviour which is completely fine that’s why we are having early stopping. I can get my encoder and decoder output separately.
+encoder_out = model.encoder(normal_test_data).numpy() #8 unit representation of data
+decoder_out = model.decoder(encoder_out).numpy()
+
+
+# First, we will plot the performance on Normal data which is first-class data.
+
+plt.plot(normal_test_data[0], 'b')
+plt.plot(decoder_out[0], 'r')
+plt.title("Model performance on Normal data")
+plt.show()
+
+
+# As discussed there will be a very little reconstruction error on Normal data which we can see in the above graph. The difference between both the red and blue lines is very less. what if I pass the anomaly test data.
+
+encoder_out_a = model.encoder(anomaly_test_data).numpy() #8 unit representation of data
+decoder_out_a = model.decoder(encoder_out_a).numpy()
+plt.plot(anomaly_test_data[0], 'b')
+plt.plot(decoder_out_a[0], 'r')
+plt.title("Model performance on Anomaly Data")
+plt.show()
+# The top is anomaly test data and the red one is decoder output. if you see that the reconstruction error over here is pretty high. Now we got a very good model.
+     
+
+
+# Calculate Loss
+
+# Now we will define our loss like threshold loss for our Model which gives us an output error between input and output. we define the Keras loss function over mean absolute error and plot it in form of a histogram.
+
+reconstruction = model.predict(normal_test_data)
+train_loss = tf.keras.losses.mae(reconstruction, normal_test_data)
+plt.hist(train_loss, bins=50)
+
+# If you see the X-axis then most of the values lie below 0.5. there are a few anomalies because we cannot have a 100% perfect model. This is how the error looks like between normal data and reconstructed data. Now we want to set a threshold from which we can tell that value above it is anomalies and below it is normal data so we take the mean of training loss and multiply it with second standard deviation. The threshold should be set as per business standards.
+
+threshold = np.mean(train_loss) + 2*np.std(train_loss)
+reconstruction_a = model.predict(anomaly_test_data)
+train_loss_a = tf.keras.losses.mae(reconstruction_a, anomaly_test_data)
+plt.hist(train_loss_a, bins=50)
+plt.title("loss on anomaly test data")
+plt.show()
+
+
+# If you saw the above graph then most of the data were below 0.5 and if we plot histogram on anomaly test data loss then most of the data lies above 0.5. Observe the separation between normal data loss and anomaly data loss; hence, we got a very good model.
+
+# Plot Normal and anomaly Loss together
+
+# To get a better idea of how both losses together look like let us plot both the loss along with the threshold. So we pass the normal training loss and anomaly loss in a separate histogram on a single graph. we are drawing a vertical line on the graph which is the threshold for better visualization.
+
+plt.hist(train_loss, bins=50, label='normal')
+plt.hist(train_loss_a, bins=50, label='anomaly')
+plt.axvline(threshold, color='r', linewidth=3, linestyle='dashed', label='{:0.3f}'.format(threshold))
+plt.legend(loc='upper right')
+plt.title("Normal and Anomaly Loss")
+plt.show()
+
+# Now if you see a mean anomaly loss then earlier it was 33 percent but not it is 90 percent which is way far but 
+
+
+# How well does it predict Normal Class?
+
+# Anomaly data is data above to threshold so we use TensorFlow max function to find the values that are in anomaly data.
+
+preds = tf.math.less(train_loss, threshold)
+tf.math.count_nonzero(preds)
+# Among 563 total records, it predicts 536 values correctly so we can say that Model is 95 per cent accurate in predicting normal class.
+     
+
+# How well does it perform on Anomaly data?
+
+# Now we use a greater function to find the count of values that are greater than a threshold which is anomalies.
+
+preds_a = tf.math.greater(train_loss_a, threshold)
+tf.math.count_nonzero(preds_a)
+# From 437 total records 431, it has predicted accurately means the final Model is 90 to 95 per cent accurate in predicting the new points.
+     
