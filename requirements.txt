@@ -30,3 +30,6 @@ gradio
 langid
 PyPDF2
 wavio
+langchain_ollama.llms
+langgraph
+langchain_ollama
