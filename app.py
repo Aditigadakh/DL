@@ -1,19 +1,17 @@
+import os
 import streamlit as st
 import requests
 import asyncio
 import websockets
-import time
 import sounddevice as sd
 from dotenv import load_dotenv
-from pypdf import PdfReader
-import pyaudio
-import wave
-import torch
-from TTS.api import TTS
 import uuid
 
-## VARIABLES
-TOTAL_QUESTIONS = 7
+# Load environment variables
+load_dotenv()
+
+# Fetch environment variables
+BASE_URL = os.getenv('BASE_URL', 'http://localhost:8000')
 
 ## Initialize session state attributes if they don't exist
 if "pdf_flag" not in st.session_state:
@@ -50,10 +48,10 @@ async def send_audio(uri):
 # Function to start the WebSocket connection
 async def start_websocket():
     st.session_state.running = True
-    await send_audio('ws://localhost:8000/ws')
+    await send_audio(f'{BASE_URL}/ws')
 
 # Streamlit UI for uploading PDF and displaying chat
-response = requests.get('http://localhost:8000/')
+response = requests.get(f'{BASE_URL}/')
 if response.status_code == 200:
     with st.sidebar:
         st.title("Menu:")
@@ -68,8 +66,8 @@ if response.status_code == 200:
                 with st.spinner("Processing..."):
                     files = {"resume": pdf_docs}
                     data = {"jd": job_description}
-                    upload_response = requests.post("http://localhost:8000/submit_resume", files=files)
-                    upload_response2 = requests.post("http://localhost:8000/submit_JD", json=data)
+                    upload_response = requests.post(f"{BASE_URL}/submit_resume", files=files)
+                    upload_response2 = requests.post(f"{BASE_URL}/submit_JD", json=data)
 
                     if upload_response.status_code == 200 and upload_response2.status_code==200:
                         st.session_state.raw_text = upload_response.json().get("resume_text", "")
@@ -104,7 +102,7 @@ if response.status_code == 200:
             "uid": st.session_state.uid,
         }
 
-        response = requests.post('http://localhost:8000/langgraph', json=payload)
+        response = requests.post(f'{BASE_URL}/langgraph', json=payload)
         if response.status_code == 200:
             with st.chat_message("ai"):
                 st.markdown(response.text)
@@ -126,7 +124,7 @@ if response.status_code == 200:
             "uid": st.session_state.uid,
         }
 
-        response = requests.post('http://localhost:8000/langgraph', json=payload)
+        response = requests.post(f'{BASE_URL}/langgraph', json=payload)
         if response.status_code == 200:
             st.session_state.messages.append({"role": "ai", "content": response.text})
             with st.chat_message("ai"):
