@@ -27,5 +27,5 @@ pyaudio
 pypdf
 streamlit
 tokenizers
-torchaudio==2.4.0
+
  
